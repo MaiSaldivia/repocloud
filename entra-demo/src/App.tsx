@@ -1,20 +1,40 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { InteractionStatus } from '@azure/msal-browser';
 import { tokenRequest } from './authConfig';
 import { obtenerToken } from './token';
-import { consultarDashboard, crearProductoApi, crearPedidoApi } from './api';
+
+// Importación de funciones
+import {
+  consultarDashboard,
+  crearProductoApi,
+  crearPedidoApi,
+  actualizarEstadoPedidoApi,
+} from './api';
+
+// Importación estricta de interfaces (requerido por verbatimModuleSyntax)
+import type {
+  Product,
+  Order,
+  DashboardData
+} from './api';
 
 export default function App() {
   const { instance, accounts, inProgress } = useMsal();
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'orders'>('dashboard');
+  const [data, setData] = useState<DashboardData>({ products: [], orders: [] });
   const [salida, setSalida] = useState('');
   const [ocupado, setOcupado] = useState(false);
   const [hasToken, setHasToken] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const account = accounts[0];
   const bloqueado = ocupado || inProgress !== InteractionStatus.None;
 
-  // Ejemplos de productos para la red de Panaderías/Cafés (EFT Pedidos360)
+  // Formulario manual
+  const [newProduct, setNewProduct] = useState({ name: '', description: '', price: 2500, stock: 20 });
+  const [newOrderAmount, setNewOrderAmount] = useState(4900);
+
   const productosEjemplo = [
     { name: 'Café Capuchino 300ml', description: 'Café expreso con leche vaporizada y espuma', price: 2800, stock: 50 },
     { name: 'Pan Marraqueta (Kg)', description: 'Pan tradicional fresco crujiente', price: 2100, stock: 100 },
@@ -28,9 +48,7 @@ export default function App() {
     try {
       await action();
     } catch (error) {
-      setSalida(
-        error instanceof Error ? error.message : String(error)
-      );
+      setSalida(error instanceof Error ? error.message : String(error));
     } finally {
       setOcupado(false);
     }
@@ -56,30 +74,51 @@ export default function App() {
     );
   }
 
-  async function consultar() {
+  async function cargarDatos() {
     if (account) {
-      const resultado = await consultarDashboard(instance, account);
-      setSalida(JSON.stringify(resultado, null, 2));
+      const res = await consultarDashboard(instance, account);
+      setData(res);
+      setHasToken(true);
+      setSalida('Datos del Dashboard actualizados desde el BFF.');
     }
   }
 
-  async function agregarProductoPanaderia() {
+  useEffect(() => {
     if (account) {
-      const randomProd = productosEjemplo[Math.floor(Math.random() * productosEjemplo.length)];
-      const resultado = await crearProductoApi(instance, account, randomProd);
-      setSalida('Producto de Panadería/Café creado en Catálogo:\n' + JSON.stringify(resultado, null, 2));
+      void cargarDatos();
+    }
+  }, [account]);
+
+  async function handleCrearProducto(e?: React.FormEvent) {
+    if (e) e.preventDefault();
+    if (account) {
+      const prod = newProduct.name ? newProduct : productosEjemplo[Math.floor(Math.random() * productosEjemplo.length)];
+      await crearProductoApi(instance, account, prod);
+      setNewProduct({ name: '', description: '', price: 2500, stock: 20 });
+      await cargarDatos();
     }
   }
 
-  async function agregarPedidoPanaderia() {
+  async function handleCrearPedido(e?: React.FormEvent) {
+    if (e) e.preventDefault();
     if (account) {
-      const nuevoPedido = {
+      await crearPedidoApi(instance, account, {
         customerEmail: account.username,
-        totalAmount: 4900,
-        status: 'CREADO' as const,
-      };
-      const resultado = await crearPedidoApi(instance, account, nuevoPedido);
-      setSalida('Pedido de PyME creado (Pendiente Aceptación/Cocina):\n' + JSON.stringify(resultado, null, 2));
+        totalAmount: newOrderAmount,
+        status: 'CREADO',
+      });
+      await cargarDatos();
+    }
+  }
+
+  async function handleCambiarEstado(id: number, status: Order['status']) {
+    if (account) {
+      try {
+        await actualizarEstadoPedidoApi(instance, account, id, status);
+        await cargarDatos();
+      } catch (err: any) {
+        setSalida('⚠️ Regla de Negocio Rechazada: ' + err.message);
+      }
     }
   }
 
@@ -90,70 +129,226 @@ export default function App() {
     }
   }
 
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'CREADO': return '#3b82f6';
+      case 'ACEPTADO': return '#10b981';
+      case 'EN_PREPARACIÓN': return '#f59e0b';
+      case 'DESPACHADO': return '#8b5cf6';
+      case 'ENTREGADO': return '#059669';
+      case 'CANCELADO': return '#ef4444';
+      default: return '#6b7280';
+    }
+  };
+
+  const ordersFiltradas = data.orders.filter(o =>
+    o.customerEmail.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    o.status.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   return (
-    <main style={{ maxWidth: 900, margin: '40px auto', padding: 20, fontFamily: 'Segoe UI, sans-serif' }}>
-      <header style={{ borderBottom: '2px solid #e2e8f0', paddingBottom: 15, marginBottom: 20 }}>
-        <h1 style={{ color: '#2d3748', marginBottom: 5 }}>Pedidos360 - Red de Panaderías & Cafés</h1>
-        <p style={{ color: '#718096', margin: 0 }}>Plataforma Cloud-Native de gestión de pedidos y despachos (Caso EFT)</p>
+    <main style={{ maxWidth: 1100, margin: '20px auto', padding: 20, fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+      {/* Header */}
+      <header style={{ backgroundColor: '#ffffff', borderRadius: '12px', padding: '20px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', marginBottom: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: '24px', color: '#1e293b' }}>🥖 Pedidos360 - Red de Panaderías & Cafés</h1>
+            <p style={{ margin: '4px 0 0 0', color: '#64748b', fontSize: '14px' }}>Plataforma Cloud-Native de Gestión de Pedidos</p>
+          </div>
+          {account && (
+            <div style={{ textAlign: 'right' }}>
+              <span style={{ fontSize: '13px', backgroundColor: '#e2e8f0', color: '#334155', padding: '6px 12px', borderRadius: '20px', fontWeight: 'bold' }}>
+                👤 {account.username}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Auth Bar */}
+        <div style={{ marginTop: '15px', display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+          {!account ? (
+            <button disabled={bloqueado} onClick={() => void ejecutar(entrar)} style={{ padding: '10px 20px', backgroundColor: '#0078d4', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
+              Iniciar sesión con Microsoft Entra ID
+            </button>
+          ) : (
+            <>
+              <button disabled={bloqueado} onClick={() => void ejecutar(probarToken)} style={{ padding: '6px 12px', backgroundColor: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>
+                1. Validar JWT Entra ID
+              </button>
+              <button disabled={bloqueado} onClick={() => void ejecutar(cargarDatos)} style={{ padding: '6px 12px', backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>
+                2. Consultar Dashboard BFF
+              </button>
+              <button disabled={bloqueado} onClick={() => void ejecutar(salir)} style={{ padding: '6px 12px', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', marginLeft: 'auto' }}>
+                Cerrar sesión
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* Tabs Navegación */}
+        {account && (
+          <div style={{ display: 'flex', gap: '10px', marginTop: '20px', borderTop: '1px solid #f1f5f9', paddingTop: '15px' }}>
+            <button onClick={() => setActiveTab('dashboard')} style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', backgroundColor: activeTab === 'dashboard' ? '#1e293b' : '#f1f5f9', color: activeTab === 'dashboard' ? '#fff' : '#475569', cursor: 'pointer', fontWeight: 'bold' }}>
+              📊 Resumen KPIs
+            </button>
+            <button onClick={() => setActiveTab('products')} style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', backgroundColor: activeTab === 'products' ? '#1e293b' : '#f1f5f9', color: activeTab === 'products' ? '#fff' : '#475569', cursor: 'pointer', fontWeight: 'bold' }}>
+              🥐 Catálogo ({data.products.length})
+            </button>
+            <button onClick={() => setActiveTab('orders')} style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', backgroundColor: activeTab === 'orders' ? '#1e293b' : '#f1f5f9', color: activeTab === 'orders' ? '#fff' : '#475569', cursor: 'pointer', fontWeight: 'bold' }}>
+              📦 Pedidos ({data.orders.length})
+            </button>
+          </div>
+        )}
       </header>
 
-      {!account ? (
-        <div style={{ textAlign: 'center', padding: '40px 0' }}>
-          <button
-            disabled={bloqueado}
-            onClick={() => void ejecutar(entrar)}
-            style={{
-              padding: '12px 24px',
-              fontSize: '16px',
-              backgroundColor: '#0078d4',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer'
-            }}
-          >
-            Iniciar sesión con Microsoft Entra ID
-          </button>
+      {/* Salida de Log / Excepciones */}
+      {salida && (
+        <div style={{ backgroundColor: '#1e293b', color: '#38bdf8', padding: '12px 16px', borderRadius: '8px', marginBottom: '20px', fontSize: '13px', fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
+          {salida}
         </div>
-      ) : (
-        <>
-          <div style={{ backgroundColor: '#f7fafc', padding: '12px 16px', borderRadius: '6px', marginBottom: '20px' }}>
-            <strong>Usuario Activo (IDaaS):</strong> {account.username}
-          </div>
-
-          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '20px' }}>
-            <button disabled={bloqueado} onClick={() => void ejecutar(probarToken)}>
-              1. Validar JWT Entra ID
-            </button>
-            <button disabled={bloqueado || !hasToken} onClick={() => void ejecutar(consultar)}>
-              2. Consultar Dashboard BFF
-            </button>
-            <button disabled={bloqueado || !hasToken} onClick={() => void ejecutar(agregarProductoPanaderia)}>
-              + Crear Producto (Pan/Café)
-            </button>
-            <button disabled={bloqueado || !hasToken} onClick={() => void ejecutar(agregarPedidoPanaderia)}>
-              + Crear Pedido Web
-            </button>
-            <button disabled={bloqueado} onClick={() => void ejecutar(salir)}>
-              Cerrar sesión
-            </button>
-          </div>
-        </>
       )}
 
-      <h3>Panel de Datos (BFF &gt; Microservicios):</h3>
-      <pre style={{
-        backgroundColor: '#1a202c',
-        color: '#48bb78',
-        padding: '18px',
-        borderRadius: '6px',
-        whiteSpace: 'pre-wrap',
-        overflowWrap: 'anywhere',
-        minHeight: '180px',
-        fontSize: '14px'
-      }}>
-        {salida || '// Presiona "2. Consultar Dashboard BFF" o crea productos/pedidos para visualizar las respuestas del backend.'}
-      </pre>
+      {account && activeTab === 'dashboard' && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
+          <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+            <h3 style={{ margin: 0, color: '#64748b', fontSize: '14px' }}>Total Pedidos Registrados</h3>
+            <p style={{ margin: '10px 0 0 0', fontSize: '36px', fontWeight: 'bold', color: '#1e293b' }}>{data.orders.length}</p>
+          </div>
+          <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+            <h3 style={{ margin: 0, color: '#64748b', fontSize: '14px' }}>Productos en Catálogo</h3>
+            <p style={{ margin: '10px 0 0 0', fontSize: '36px', fontWeight: 'bold', color: '#2563eb' }}>{data.products.length}</p>
+          </div>
+          <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+            <h3 style={{ margin: 0, color: '#64748b', fontSize: '14px' }}>Ventas Totales</h3>
+            <p style={{ margin: '10px 0 0 0', fontSize: '36px', fontWeight: 'bold', color: '#10b981' }}>
+              ${data.orders.reduce((acc, o) => acc + (o.totalAmount || 0), 0).toLocaleString()}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {account && activeTab === 'products' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: '20px' }}>
+          <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+            <h2 style={{ marginTop: 0 }}>Catálogo de Panadería & Café</h2>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+              <thead>
+                <tr style={{ borderBottom: '2px solid #e2e8f0', color: '#64748b' }}>
+                  <th style={{ padding: '10px' }}>ID</th>
+                  <th style={{ padding: '10px' }}>Nombre</th>
+                  <th style={{ padding: '10px' }}>Descripción</th>
+                  <th style={{ padding: '10px' }}>Precio</th>
+                  <th style={{ padding: '10px' }}>Stock</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.products.map(p => (
+                  <tr key={p.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '10px', fontWeight: 'bold' }}>#{p.id}</td>
+                    <td style={{ padding: '10px', fontWeight: '600' }}>{p.name}</td>
+                    <td style={{ padding: '10px', color: '#64748b', fontSize: '13px' }}>{p.description}</td>
+                    <td style={{ padding: '10px', fontWeight: 'bold', color: '#059669' }}>${p.price}</td>
+                    <td style={{ padding: '10px' }}>
+                      <span style={{ padding: '4px 8px', borderRadius: '4px', backgroundColor: p.stock > 5 ? '#d1fae5' : '#fee2e2', color: p.stock > 5 ? '#065f46' : '#991b1b', fontSize: '12px', fontWeight: 'bold' }}>
+                        {p.stock} un.
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', height: 'fit-content' }}>
+            <h3 style={{ marginTop: 0 }}>+ Crear Producto</h3>
+            <form onSubmit={e => void handleCrearProducto(e)} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <input placeholder="Nombre" value={newProduct.name} onChange={e => setNewProduct({ ...newProduct, name: e.target.value })} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
+              <input placeholder="Descripción" value={newProduct.description} onChange={e => setNewProduct({ ...newProduct, description: e.target.value })} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
+              <input type="number" placeholder="Precio" value={newProduct.price} onChange={e => setNewProduct({ ...newProduct, price: +e.target.value })} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
+              <input type="number" placeholder="Stock" value={newProduct.stock} onChange={e => setNewProduct({ ...newProduct, stock: +e.target.value })} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
+              <button type="submit" style={{ padding: '10px', backgroundColor: '#10b981', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
+                Guardar Producto
+              </button>
+            </form>
+            <button onClick={() => void handleCrearProducto()} style={{ marginTop: '10px', width: '100%', padding: '8px', backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
+              🎲 Generar Producto Aleatorio
+            </button>
+          </div>
+        </div>
+      )}
+
+      {account && activeTab === 'orders' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: '20px' }}>
+          <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+              <h2 style={{ margin: 0 }}>Listado de Pedidos</h2>
+              <input
+                type="text"
+                placeholder="🔍 Buscar por correo o estado..."
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', width: '220px' }}
+              />
+            </div>
+
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+              <thead>
+                <tr style={{ borderBottom: '2px solid #e2e8f0', color: '#64748b' }}>
+                  <th style={{ padding: '10px' }}>ID</th>
+                  <th style={{ padding: '10px' }}>Cliente</th>
+                  <th style={{ padding: '10px' }}>Total</th>
+                  <th style={{ padding: '10px' }}>Estado</th>
+                  <th style={{ padding: '10px' }}>Cambiar Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ordersFiltradas.map(o => (
+                  <tr key={o.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '10px', fontWeight: 'bold' }}>#{o.id}</td>
+                    <td style={{ padding: '10px', fontSize: '13px' }}>{o.customerEmail}</td>
+                    <td style={{ padding: '10px', fontWeight: 'bold' }}>${o.totalAmount}</td>
+                    <td style={{ padding: '10px' }}>
+                      <span style={{ padding: '4px 10px', borderRadius: '12px', color: '#fff', backgroundColor: getStatusColor(o.status), fontSize: '11px', fontWeight: 'bold' }}>
+                        {o.status}
+                      </span>
+                    </td>
+                    <td style={{ padding: '10px' }}>
+                      {o.status === 'CREADO' && (
+                        <button onClick={() => void handleCambiarEstado(o.id!, 'ACEPTADO')} style={{ padding: '4px 8px', backgroundColor: '#10b981', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
+                          Aceptar
+                        </button>
+                      )}
+                      {o.status === 'ACEPTADO' && (
+                        <button onClick={() => void handleCambiarEstado(o.id!, 'DESPACHADO')} style={{ padding: '4px 8px', backgroundColor: '#8b5cf6', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
+                          Despachar
+                        </button>
+                      )}
+                      {o.status === 'DESPACHADO' && (
+                        <button onClick={() => void handleCambiarEstado(o.id!, 'ENTREGADO')} style={{ padding: '4px 8px', backgroundColor: '#059669', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
+                          Entregar
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', height: 'fit-content' }}>
+            <h3 style={{ marginTop: 0 }}>+ Crear Pedido Web</h3>
+            <form onSubmit={e => void handleCrearPedido(e)} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <label style={{ fontSize: '12px', color: '#64748b' }}>Cliente Logueado:</label>
+              <input value={account.username} disabled style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: '#f1f5f9' }} />
+              <label style={{ fontSize: '12px', color: '#64748b' }}>Monto Total ($):</label>
+              <input type="number" value={newOrderAmount} onChange={e => setNewOrderAmount(+e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
+              <button type="submit" style={{ padding: '10px', backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
+                Generar Pedido Web
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

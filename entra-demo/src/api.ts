@@ -25,7 +25,7 @@ export interface DashboardData {
   orders: Order[];
 }
 
-// Función auxiliar para cliente HTTP autenticado
+// Auxiliar para peticiones autenticadas
 async function fetchConAuth(
   instance: IPublicClientApplication,
   account: AccountInfo,
@@ -55,7 +55,6 @@ async function fetchConAuth(
   return body ? JSON.parse(body) : null;
 }
 
-// Consultar Dashboard del BFF (Catálogo + Pedidos)
 export async function consultarDashboard(
   instance: IPublicClientApplication,
   account: AccountInfo
@@ -63,7 +62,6 @@ export async function consultarDashboard(
   return fetchConAuth(instance, account, '/api/dashboard');
 }
 
-// Crear producto en Catálogo de Panadería/Café
 export async function crearProductoApi(
   instance: IPublicClientApplication,
   account: AccountInfo,
@@ -75,20 +73,6 @@ export async function crearProductoApi(
   });
 }
 
-// Actualizar producto existente (Precio / Stock)
-export async function actualizarProductoApi(
-  instance: IPublicClientApplication,
-  account: AccountInfo,
-  id: number,
-  product: Product
-): Promise<Product> {
-  return fetchConAuth(instance, account, `/api/catalog/products/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify(product),
-  });
-}
-
-// Crear pedido en el servicio de Orders
 export async function crearPedidoApi(
   instance: IPublicClientApplication,
   account: AccountInfo,
@@ -100,7 +84,6 @@ export async function crearPedidoApi(
   });
 }
 
-// Cambiar estado del pedido (CREADO -> ACEPTADO -> EN_PREPARACIÓN -> DESPACHADO -> ENTREGADO / CANCELADO)
 export async function actualizarEstadoPedidoApi(
   instance: IPublicClientApplication,
   account: AccountInfo,
@@ -111,21 +94,4 @@ export async function actualizarEstadoPedidoApi(
     method: 'PUT',
     body: JSON.stringify({ status }),
   });
-}
-
-// Consultar pedidos con filtros opcionales (por estado o rango de fechas)
-export async function consultarPedidosConFiltroApi(
-  instance: IPublicClientApplication,
-  account: AccountInfo,
-  status?: string,
-  from?: string,
-  to?: string
-): Promise<Order[]> {
-  const params = new URLSearchParams();
-  if (status) params.append('status', status);
-  if (from) params.append('from', from);
-  if (to) params.append('to', to);
-
-  const queryString = params.toString() ? `?${params.toString()}` : '';
-  return fetchConAuth(instance, account, `/api/orders${queryString}`);
 }
