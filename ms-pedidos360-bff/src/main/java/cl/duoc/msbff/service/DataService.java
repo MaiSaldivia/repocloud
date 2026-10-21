@@ -3,6 +3,7 @@ package cl.duoc.msbff.service;
 import cl.duoc.msbff.dto.DashboardDTO;
 import cl.duoc.msbff.dto.OrderDTO;
 import cl.duoc.msbff.dto.ProductDTO;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
@@ -15,13 +16,16 @@ public class DataService {
     private final RestClient restClientCatalog;
     private final RestClient restClientOrders;
 
-    public DataService() {
+    public DataService(
+            @Value("${services.catalog.url:http://172.31.20.23:8081}") String catalogUrl,
+            @Value("${services.orders.url:http://172.31.20.23:8082}") String ordersUrl) {
+
         this.restClientCatalog = RestClient.builder()
-                .baseUrl("http://localhost:8081")
+                .baseUrl(catalogUrl)
                 .build();
 
         this.restClientOrders = RestClient.builder()
-                .baseUrl("http://localhost:8082")
+                .baseUrl(ordersUrl)
                 .build();
     }
 
