@@ -67,4 +67,22 @@ public class DataService {
         List<OrderDTO> pedidos = obtenerPedidos();
         return new DashboardDTO(productos, pedidos);
     }
+
+    // --- ACTUALIZACIÓN DE ESTADO DE PEDIDO ---
+    public OrderDTO actualizarEstadoPedido(Long id, String status) {
+        return restClientOrders.put()
+                .uri("/api/orders/" + id + "/status")
+                .body(java.util.Map.of("status", status))
+                .retrieve()
+                .body(OrderDTO.class);
+    }
+
+    // --- ACTUALIZACIÓN DE PRODUCTO ---
+    public ProductDTO actualizarProducto(Long id, ProductDTO producto) {
+        return restClientCatalog.put()
+                .uri("/api/catalog/products/" + id)
+                .body(producto)
+                .retrieve()
+                .body(ProductDTO.class);
+    }
 }

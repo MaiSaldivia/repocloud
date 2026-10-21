@@ -75,6 +75,19 @@ export async function crearProductoApi(
   });
 }
 
+// Actualizar producto existente (Precio / Stock)
+export async function actualizarProductoApi(
+  instance: IPublicClientApplication,
+  account: AccountInfo,
+  id: number,
+  product: Product
+): Promise<Product> {
+  return fetchConAuth(instance, account, `/api/catalog/products/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(product),
+  });
+}
+
 // Crear pedido en el servicio de Orders
 export async function crearPedidoApi(
   instance: IPublicClientApplication,
@@ -85,4 +98,34 @@ export async function crearPedidoApi(
     method: 'POST',
     body: JSON.stringify(order),
   });
+}
+
+// Cambiar estado del pedido (CREADO -> ACEPTADO -> EN_PREPARACIÓN -> DESPACHADO -> ENTREGADO / CANCELADO)
+export async function actualizarEstadoPedidoApi(
+  instance: IPublicClientApplication,
+  account: AccountInfo,
+  id: number,
+  status: Order['status']
+): Promise<Order> {
+  return fetchConAuth(instance, account, `/api/orders/${id}/status`, {
+    method: 'PUT',
+    body: JSON.stringify({ status }),
+  });
+}
+
+// Consultar pedidos con filtros opcionales (por estado o rango de fechas)
+export async function consultarPedidosConFiltroApi(
+  instance: IPublicClientApplication,
+  account: AccountInfo,
+  status?: string,
+  from?: string,
+  to?: string
+): Promise<Order[]> {
+  const params = new URLSearchParams();
+  if (status) params.append('status', status);
+  if (from) params.append('from', from);
+  if (to) params.append('to', to);
+
+  const queryString = params.toString() ? `?${params.toString()}` : '';
+  return fetchConAuth(instance, account, `/api/orders${queryString}`);
 }
