@@ -9,3 +9,9 @@ spring:
       resourceserver:
         jwt:
           issuer-uri: https://login.microsoftonline.com/5aeb0fb8-efa9-497b-aa26-9cb8046ad6f0/v2.0
+
+services:
+  catalog:
+    url: http://172.31.20.23:8081/api/catalog/products
+  orders:
+    url: http://172.31.20.23:8082/api/orders
