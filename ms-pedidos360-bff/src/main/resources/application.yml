@@ -12,6 +12,6 @@ spring:
 
 services:
   catalog:
-    url: http://172.31.20.23:8081/api/catalog/products
+    url: http://172.31.20.23:8081
   orders:
-    url: http://172.31.20.23:8082/api/orders
+    url: http://172.31.20.23:8082
