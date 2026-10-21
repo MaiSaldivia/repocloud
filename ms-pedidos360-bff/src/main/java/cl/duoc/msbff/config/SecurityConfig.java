@@ -21,10 +21,14 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/public/**", "/api/dashboard/**", "/api/catalog/**", "/api/orders/**").permitAll()
+                .requestMatchers(
+                    "/api/public/**", 
+                    "/api/dashboard/**", 
+                    "/api/catalog/**", 
+                    "/api/orders/**"
+                ).permitAll()
                 .anyRequest().permitAll()
-            )
-            .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> jwt.disable()));
+            );
 
         return http.build();
     }
