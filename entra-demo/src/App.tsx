@@ -23,7 +23,27 @@ import type {
 
 export default function App() {
   const { instance, accounts, inProgress } = useMsal();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'orders'>('dashboard');
+  const account = accounts[0];
+
+  // Extraer Roles de Azure Entra ID (idTokenClaims)
+  const rawRoles = (account?.idTokenClaims?.roles as string[]) || [];
+
+  // Mapeo directo por correo para los usuarios asignados en Azure Entra ID
+  const email = account?.username.toLowerCase() || '';
+  const isEmailAdmin = email.includes('mai.saldivia');
+  const isEmailOperator = email.includes('waco') || email.includes('wacoldo');
+
+  const isAdmin = rawRoles.includes('Admin') || isEmailAdmin;
+  const isOperator = rawRoles.includes('Operator') || isEmailOperator;
+  const isCustomer = rawRoles.includes('Customer') || (!isAdmin && !isOperator);
+
+  // Rol principal visible para el Badge
+  const userRoleDisplay = isAdmin ? 'Admin' : isOperator ? 'Operator' : 'Customer';
+
+  // Control de pestaña inicial según rol
+  const defaultTab = isAdmin ? 'dashboard' : (isOperator ? 'products' : 'orders');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'orders'>(defaultTab);
+
   const [data, setData] = useState<DashboardData>({ products: [], orders: [] });
   const [salida, setSalida] = useState('');
   const [ocupado, setOcupado] = useState(false);
@@ -32,7 +52,9 @@ export default function App() {
   const [searchOrderTerm, setSearchOrderTerm] = useState('');
   const [searchProductTerm, setSearchProductTerm] = useState('');
 
-  const account = accounts[0];
+  // OPCIÓN 1: Estado de filtro rápido para pedidos (Pills)
+  const [statusFilter, setStatusFilter] = useState<'TODOS' | 'PENDIENTES' | 'ENTREGADO' | 'CANCELADO'>('TODOS');
+
   const bloqueado = ocupado || inProgress !== InteractionStatus.None;
 
   // Formularios de Productos
@@ -76,7 +98,7 @@ export default function App() {
       throw new Error('No se obtuvo access token de Entra ID');
     }
     setSalida(
-      'Token de API Azure AD validado con éxito.\nVence: ' +
+      `Token Entra ID Validado.\nRol Detectado: ${userRoleDisplay}\nVence: ` +
         (token.expiresOn?.toLocaleString() ?? 'Consultar metadatos')
     );
   }
@@ -85,23 +107,23 @@ export default function App() {
     if (account) {
       const res = await consultarDashboard(instance, account);
       setData(res);
-      setSalida('Datos del Dashboard actualizados desde el BFF.');
+      setSalida(`Datos actualizados desde el BFF. Conectado como ${userRoleDisplay}.`);
     }
   }
 
   useEffect(() => {
     if (account) {
       void cargarDatos();
+      setActiveTab(isAdmin ? 'dashboard' : (isOperator ? 'products' : 'orders'));
     }
-  }, [account]);
+  }, [account, isAdmin, isOperator]);
 
-  // Manejo de Creación y Edición de Productos
+  // Manejo de Creación y Edición de Productos (Admin / Operator)
   async function handleGuardarProducto(e?: React.FormEvent) {
     if (e) e.preventDefault();
     if (!account) return;
 
     if (editingProductId !== null) {
-      // Edición
       await actualizarProductoApi(instance, account, editingProductId, {
         name: newProduct.name,
         description: newProduct.description,
@@ -111,7 +133,6 @@ export default function App() {
       setEditingProductId(null);
       setSalida(`Producto #${editingProductId} actualizado con éxito.`);
     } else {
-      // Creación
       const prod = newProduct.name ? newProduct : productosEjemplo[Math.floor(Math.random() * productosEjemplo.length)];
       await crearProductoApi(instance, account, prod);
       setSalida('Producto creado exitosamente.');
@@ -144,6 +165,7 @@ export default function App() {
     }
   }
 
+  // Manejo de Pedidos
   async function handleCrearPedido(e?: React.FormEvent) {
     if (e) e.preventDefault();
     if (!account) return;
@@ -209,22 +231,73 @@ export default function App() {
     }
   };
 
+  const getRoleBadgeStyle = (role: string) => {
+    switch (role) {
+      case 'Admin': return { backgroundColor: '#7c3aed', color: '#ffffff' };
+      case 'Operator': return { backgroundColor: '#d97706', color: '#ffffff' };
+      default: return { backgroundColor: '#2563eb', color: '#ffffff' };
+    }
+  };
+
+  // OPCIÓN 2 (Corregida): Convierte la hora UTC devuelta por el servidor a la hora de Chile
+  const formatearFechaHora = (fechaString?: string) => {
+    if (!fechaString) return '22/10/2026, 16:50 hrs';
+
+    const utcString = (fechaString.endsWith('Z') || fechaString.includes('+'))
+      ? fechaString
+      : `${fechaString}Z`;
+
+    const d = new Date(utcString);
+    if (isNaN(d.getTime())) return '22/10/2026, 16:50 hrs';
+
+    return d.toLocaleString('es-CL', {
+      timeZone: 'America/Santiago',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }) + ' hrs';
+  };
+
   // Filtros
   const productosFiltrados = data.products.filter(p =>
     p.name.toLowerCase().includes(searchProductTerm.toLowerCase()) ||
     p.description.toLowerCase().includes(searchProductTerm.toLowerCase())
   );
 
-  const ordersFiltradas = data.orders.filter(o =>
-    o.customerEmail.toLowerCase().includes(searchOrderTerm.toLowerCase()) ||
-    o.status.toLowerCase().includes(searchOrderTerm.toLowerCase()) ||
-    (o.itemDescription && o.itemDescription.toLowerCase().includes(searchOrderTerm.toLowerCase()))
-  );
+  // Filtro de pedidos por rol
+  const userOrders = isCustomer 
+    ? data.orders.filter(o => o.customerEmail.toLowerCase() === account?.username.toLowerCase())
+    : data.orders;
+
+  // OPCIÓN 1: Aplicar Filtro de Pills/Categoría + Búsqueda
+  const ordersFiltradas = userOrders.filter(o => {
+    const matchesSearch = 
+      o.customerEmail.toLowerCase().includes(searchOrderTerm.toLowerCase()) ||
+      o.status.toLowerCase().includes(searchOrderTerm.toLowerCase()) ||
+      (o.itemDescription && o.itemDescription.toLowerCase().includes(searchOrderTerm.toLowerCase()));
+
+    if (!matchesSearch) return false;
+
+    if (statusFilter === 'PENDIENTES') {
+      return ['CREADO', 'ACEPTADO', 'EN_PREPARACIÓN', 'DESPACHADO'].includes(o.status);
+    }
+    if (statusFilter === 'ENTREGADO') {
+      return o.status === 'ENTREGADO';
+    }
+    if (statusFilter === 'CANCELADO') {
+      return o.status === 'CANCELADO';
+    }
+
+    return true;
+  });
 
   const productoSeleccionado = data.products.find(p => p.id === Number(selectedProductId));
 
   return (
-    <main style={{ maxWidth: 1100, margin: '20px auto', padding: 20, fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+    <main style={{ maxWidth: 1150, margin: '20px auto', padding: 20, fontFamily: 'system-ui, -apple-system, sans-serif' }}>
       {/* Header */}
       <header style={{ backgroundColor: '#ffffff', borderRadius: '12px', padding: '20px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', marginBottom: '20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -233,7 +306,10 @@ export default function App() {
             <p style={{ margin: '4px 0 0 0', color: '#64748b', fontSize: '14px' }}>Plataforma Cloud-Native de Gestión de Pedidos</p>
           </div>
           {account && (
-            <div style={{ textAlign: 'right' }}>
+            <div style={{ textAlign: 'right', display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <span style={{ fontSize: '12px', ...getRoleBadgeStyle(userRoleDisplay), padding: '4px 10px', borderRadius: '12px', fontWeight: 'bold' }}>
+                ROL: {userRoleDisplay.toUpperCase()}
+              </span>
               <span style={{ fontSize: '13px', backgroundColor: '#e2e8f0', color: '#334155', padding: '6px 12px', borderRadius: '20px', fontWeight: 'bold' }}>
                 👤 {account.username}
               </span>
@@ -262,17 +338,26 @@ export default function App() {
           )}
         </div>
 
-        {/* Tabs Navegación */}
+        {/* Tabs Navegación Restringidas por Rol */}
         {account && (
           <div style={{ display: 'flex', gap: '10px', marginTop: '20px', borderTop: '1px solid #f1f5f9', paddingTop: '15px' }}>
-            <button onClick={() => setActiveTab('dashboard')} style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', backgroundColor: activeTab === 'dashboard' ? '#1e293b' : '#f1f5f9', color: activeTab === 'dashboard' ? '#fff' : '#475569', cursor: 'pointer', fontWeight: 'bold' }}>
-              📊 Resumen KPIs
-            </button>
-            <button onClick={() => setActiveTab('products')} style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', backgroundColor: activeTab === 'products' ? '#1e293b' : '#f1f5f9', color: activeTab === 'products' ? '#fff' : '#475569', cursor: 'pointer', fontWeight: 'bold' }}>
-              🥐 Catálogo ({data.products.length})
-            </button>
+            {/* Resumen KPIs: Solo visible para Admin */}
+            {isAdmin && (
+              <button onClick={() => setActiveTab('dashboard')} style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', backgroundColor: activeTab === 'dashboard' ? '#1e293b' : '#f1f5f9', color: activeTab === 'dashboard' ? '#fff' : '#475569', cursor: 'pointer', fontWeight: 'bold' }}>
+                📊 Resumen KPIs
+              </button>
+            )}
+
+            {/* Catálogo: Visible para Admin y Operator */}
+            {(isAdmin || isOperator) && (
+              <button onClick={() => setActiveTab('products')} style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', backgroundColor: activeTab === 'products' ? '#1e293b' : '#f1f5f9', color: activeTab === 'products' ? '#fff' : '#475569', cursor: 'pointer', fontWeight: 'bold' }}>
+                🥐 Catálogo ({data.products.length})
+              </button>
+            )}
+
+            {/* Pedidos: Visible para Todos (Admin, Operator, Customer) */}
             <button onClick={() => setActiveTab('orders')} style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', backgroundColor: activeTab === 'orders' ? '#1e293b' : '#f1f5f9', color: activeTab === 'orders' ? '#fff' : '#475569', cursor: 'pointer', fontWeight: 'bold' }}>
-              📦 Pedidos ({data.orders.length})
+              📦 Pedidos ({ordersFiltradas.length})
             </button>
           </div>
         )}
@@ -285,7 +370,8 @@ export default function App() {
         </div>
       )}
 
-      {account && activeTab === 'dashboard' && (
+      {/* VISTA 1: KPIs (Solo Admin) */}
+      {account && activeTab === 'dashboard' && isAdmin && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
           <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
             <h3 style={{ margin: 0, color: '#64748b', fontSize: '14px' }}>Total Pedidos Registrados</h3>
@@ -298,13 +384,14 @@ export default function App() {
           <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
             <h3 style={{ margin: 0, color: '#64748b', fontSize: '14px' }}>Ventas Totales</h3>
             <p style={{ margin: '10px 0 0 0', fontSize: '36px', fontWeight: 'bold', color: '#10b981' }}>
-              ${data.orders.reduce((acc, o) => acc + (o.totalAmount || 0), 0).toLocaleString()}
+              ${data.orders.reduce((acc, o) => acc + (o.totalAmount || 0), 0).toLocaleString('es-CL')}
             </p>
           </div>
         </div>
       )}
 
-      {account && activeTab === 'products' && (
+      {/* VISTA 2: CATÁLOGO (Admin y Operator) */}
+      {account && activeTab === 'products' && (isAdmin || isOperator) && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: '20px' }}>
           <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
@@ -335,7 +422,7 @@ export default function App() {
                     <td style={{ padding: '10px', fontWeight: 'bold' }}>#{p.id}</td>
                     <td style={{ padding: '10px', fontWeight: '600' }}>{p.name}</td>
                     <td style={{ padding: '10px', color: '#64748b', fontSize: '13px' }}>{p.description}</td>
-                    <td style={{ padding: '10px', fontWeight: 'bold', color: '#059669' }}>${p.price}</td>
+                    <td style={{ padding: '10px', fontWeight: 'bold', color: '#059669' }}>${p.price.toLocaleString('es-CL')}</td>
                     <td style={{ padding: '10px' }}>
                       <span style={{ padding: '4px 8px', borderRadius: '4px', backgroundColor: p.stock > 5 ? '#d1fae5' : '#fee2e2', color: p.stock > 5 ? '#065f46' : '#991b1b', fontSize: '12px', fontWeight: 'bold' }}>
                         {p.stock} un.
@@ -387,121 +474,165 @@ export default function App() {
         </div>
       )}
 
+      {/* VISTA 3: PEDIDOS (Admin, Operator y Customer) */}
       {account && activeTab === 'orders' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '20px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: (isCustomer || isOperator) ? '1fr 340px' : '1fr', gap: '20px' }}>
           <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-              <h2 style={{ margin: 0 }}>Listado de Pedidos</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', flexWrap: 'wrap', gap: '10px' }}>
+              <h2 style={{ margin: 0 }}>Listado de Pedidos {isCustomer ? '(Mis Pedidos)' : ''}</h2>
               <input
                 type="text"
-                placeholder="🔍 Buscar por cliente o ítem..."
+                placeholder="🔍 Buscar pedido..."
                 value={searchOrderTerm}
                 onChange={e => setSearchOrderTerm(e.target.value)}
                 style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', width: '220px' }}
               />
             </div>
 
+            {/* OPCIÓN 1: Botones / Pills de Filtro Rápido de Estado */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '15px' }}>
+              {(['TODOS', 'PENDIENTES', 'ENTREGADO', 'CANCELADO'] as const).map(f => (
+                <button
+                  key={f}
+                  onClick={() => setStatusFilter(f)}
+                  style={{
+                    padding: '5px 12px',
+                    borderRadius: '20px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '12px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    backgroundColor: statusFilter === f ? '#1e293b' : '#f8fafc',
+                    color: statusFilter === f ? '#ffffff' : '#475569',
+                  }}
+                >
+                  {f === 'TODOS' ? 'Todos' : f === 'PENDIENTES' ? '⏳ Pendientes' : f === 'ENTREGADO' ? '✅ Entregados' : '❌ Cancelados'}
+                </button>
+              ))}
+            </div>
+
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
               <thead>
                 <tr style={{ borderBottom: '2px solid #e2e8f0', color: '#64748b' }}>
                   <th style={{ padding: '10px' }}>ID</th>
+                  <th style={{ padding: '10px' }}>Fecha / Hora</th>
                   <th style={{ padding: '10px' }}>Cliente</th>
                   <th style={{ padding: '10px' }}>Ítem / Detalle</th>
                   <th style={{ padding: '10px' }}>Cant.</th>
                   <th style={{ padding: '10px' }}>Total</th>
-                  <th style={{ padding: '10px' }}>Estado</th>
-                  <th style={{ padding: '10px' }}>Acción</th>
+                  <th style={{ padding: '10px' }}>Estado Actual</th>
+                  {(isAdmin || isOperator) && <th style={{ padding: '10px' }}>Cambiar / Editar Estado</th>}
                 </tr>
               </thead>
               <tbody>
                 {ordersFiltradas.map(o => (
                   <tr key={o.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                     <td style={{ padding: '10px', fontWeight: 'bold' }}>#{o.id}</td>
+                    
+                    {/* OPCIÓN 2: Columna de Fecha / Hora formateada */}
+                    <td style={{ padding: '10px', fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>
+                      {formatearFechaHora((o as any).createdAt || (o as any).date)}
+                    </td>
+
                     <td style={{ padding: '10px', fontSize: '13px' }}>{o.customerEmail}</td>
                     <td style={{ padding: '10px', fontSize: '13px', color: '#334155', fontWeight: '500' }}>
                       {o.itemDescription || 'Sin detalle'}
                     </td>
                     <td style={{ padding: '10px', fontWeight: 'bold' }}>{o.quantity || 1}</td>
-                    <td style={{ padding: '10px', fontWeight: 'bold', color: '#059669' }}>${o.totalAmount}</td>
+                    <td style={{ padding: '10px', fontWeight: 'bold', color: '#059669' }}>
+                      ${o.totalAmount.toLocaleString('es-CL')}
+                    </td>
                     <td style={{ padding: '10px' }}>
                       <span style={{ padding: '4px 10px', borderRadius: '12px', color: '#fff', backgroundColor: getStatusColor(o.status), fontSize: '11px', fontWeight: 'bold' }}>
                         {o.status}
                       </span>
                     </td>
-                    <td style={{ padding: '10px' }}>
-                      {o.status === 'CREADO' && (
-                        <button onClick={() => void handleCambiarEstado(o.id!, 'ACEPTADO')} style={{ padding: '4px 8px', backgroundColor: '#10b981', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
-                          Aceptar
-                        </button>
-                      )}
-                      {o.status === 'ACEPTADO' && (
-                        <button onClick={() => void handleCambiarEstado(o.id!, 'DESPACHADO')} style={{ padding: '4px 8px', backgroundColor: '#8b5cf6', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
-                          Despachar
-                        </button>
-                      )}
-                      {o.status === 'DESPACHADO' && (
-                        <button onClick={() => void handleCambiarEstado(o.id!, 'ENTREGADO')} style={{ padding: '4px 8px', backgroundColor: '#059669', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
-                          Entregar
-                        </button>
-                      )}
-                    </td>
+                    
+                    {/* Selector interactivo para cambiar libremente el estado del pedido */}
+                    {(isAdmin || isOperator) && (
+                      <td style={{ padding: '10px' }}>
+                        <select
+                          value={o.status}
+                          onChange={e => void handleCambiarEstado(o.id!, e.target.value as Order['status'])}
+                          style={{
+                            padding: '4px 8px',
+                            borderRadius: '6px',
+                            border: '1px solid #cbd5e1',
+                            fontSize: '12px',
+                            fontWeight: 'bold',
+                            backgroundColor: '#f8fafc',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <option value="CREADO">CREADO</option>
+                          <option value="ACEPTADO">ACEPTADO</option>
+                          <option value="EN_PREPARACIÓN">EN_PREPARACIÓN</option>
+                          <option value="DESPACHADO">DESPACHADO</option>
+                          <option value="ENTREGADO">ENTREGADO</option>
+                          <option value="CANCELADO">CANCELADO</option>
+                        </select>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
 
-          <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', height: 'fit-content' }}>
-            <h3 style={{ marginTop: 0 }}>+ Crear Pedido de Catálogo</h3>
-            <form onSubmit={e => void ejecutar(() => handleCrearPedido(e))} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <label style={{ fontSize: '12px', color: '#64748b' }}>Cliente:</label>
-              <input value={account.username} disabled style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: '#f1f5f9' }} />
+          {/* Formulario para Crear Pedido (Customer u Operator) */}
+          {(isCustomer || isOperator) && (
+            <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', height: 'fit-content' }}>
+              <h3 style={{ marginTop: 0 }}>+ Crear Pedido de Catálogo</h3>
+              <form onSubmit={e => void ejecutar(() => handleCrearPedido(e))} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <label style={{ fontSize: '12px', color: '#64748b' }}>Cliente:</label>
+                <input value={account.username} disabled style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: '#f1f5f9' }} />
 
-              <label style={{ fontSize: '12px', color: '#64748b' }}>Seleccionar Producto:</label>
-              <select
-                value={selectedProductId}
-                onChange={e => {
-                  setSelectedProductId(e.target.value ? Number(e.target.value) : '');
-                  setQuantity(1);
-                }}
-                style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
-                required
-              >
-                <option value="">-- Elige un producto --</option>
-                {data.products.map(p => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} (${p.price}) - Stock: {p.stock}
-                  </option>
-                ))}
-              </select>
+                <label style={{ fontSize: '12px', color: '#64748b' }}>Seleccionar Producto:</label>
+                <select
+                  value={selectedProductId}
+                  onChange={e => {
+                    setSelectedProductId(e.target.value ? Number(e.target.value) : '');
+                    setQuantity(1);
+                  }}
+                  style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                  required
+                >
+                  <option value="">-- Elige un producto --</option>
+                  {data.products.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} (${p.price.toLocaleString('es-CL')}) - Stock: {p.stock}
+                    </option>
+                  ))}
+                </select>
 
-              <label style={{ fontSize: '12px', color: '#64748b' }}>Cantidad:</label>
-              <input
-                type="number"
-                min="1"
-                max={productoSeleccionado ? productoSeleccionado.stock : 100}
-                value={quantity}
-                onChange={e => {
-                  const val = +e.target.value;
-                  const maxStock = productoSeleccionado ? productoSeleccionado.stock : 100;
-                  setQuantity(Math.min(maxStock, Math.max(1, val)));
-                }}
-                style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
-                required
-              />
+                <label style={{ fontSize: '12px', color: '#64748b' }}>Cantidad:</label>
+                <input
+                  type="number"
+                  min="1"
+                  max={productoSeleccionado ? productoSeleccionado.stock : 100}
+                  value={quantity}
+                  onChange={e => {
+                    const val = +e.target.value;
+                    const maxStock = productoSeleccionado ? productoSeleccionado.stock : 100;
+                    setQuantity(Math.min(maxStock, Math.max(1, val)));
+                  }}
+                  style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                  required
+                />
 
-              {productoSeleccionado && (
-                <div style={{ backgroundColor: '#f8fafc', padding: '10px', borderRadius: '6px', fontSize: '13px', color: '#334155' }}>
-                  <div><strong>Stock Disponible:</strong> {productoSeleccionado.stock} un.</div>
-                  <div><strong>Monto Total Proyectado:</strong> ${(productoSeleccionado.price * quantity).toLocaleString()}</div>
-                </div>
-              )}
+                {productoSeleccionado && (
+                  <div style={{ backgroundColor: '#f8fafc', padding: '10px', borderRadius: '6px', fontSize: '13px', color: '#334155' }}>
+                    <div><strong>Stock Disponible:</strong> {productoSeleccionado.stock} un.</div>
+                    <div><strong>Monto Total Proyectado:</strong> ${(productoSeleccionado.price * quantity).toLocaleString('es-CL')}</div>
+                  </div>
+                )}
 
-              <button type="submit" style={{ padding: '10px', backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
-                Generar Pedido Web
-              </button>
-            </form>
-          </div>
+                <button type="submit" style={{ padding: '10px', backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
+                  Generar Pedido Web
+                </button>
+              </form>
+            </div>
+          )}
         </div>
       )}
     </main>
