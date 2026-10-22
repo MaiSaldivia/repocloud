@@ -8,6 +8,7 @@ import { obtenerToken } from './token';
 import {
   consultarDashboard,
   crearProductoApi,
+  actualizarProductoApi,
   eliminarProductoApi,
   crearPedidoApi,
   actualizarEstadoPedidoApi,
@@ -26,13 +27,19 @@ export default function App() {
   const [data, setData] = useState<DashboardData>({ products: [], orders: [] });
   const [salida, setSalida] = useState('');
   const [ocupado, setOcupado] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
+  
+  // Términos de búsqueda independientes
+  const [searchOrderTerm, setSearchOrderTerm] = useState('');
+  const [searchProductTerm, setSearchProductTerm] = useState('');
 
   const account = accounts[0];
   const bloqueado = ocupado || inProgress !== InteractionStatus.None;
 
-  // Formularios
+  // Formularios de Productos
   const [newProduct, setNewProduct] = useState({ name: '', description: '', price: 2500, stock: 20 });
+  const [editingProductId, setEditingProductId] = useState<number | null>(null);
+
+  // Formulario de Pedidos
   const [selectedProductId, setSelectedProductId] = useState<number | ''>('');
   const [quantity, setQuantity] = useState(1);
 
@@ -88,14 +95,46 @@ export default function App() {
     }
   }, [account]);
 
-  async function handleCrearProducto(e?: React.FormEvent) {
+  // Manejo de Creación y Edición de Productos
+  async function handleGuardarProducto(e?: React.FormEvent) {
     if (e) e.preventDefault();
-    if (account) {
+    if (!account) return;
+
+    if (editingProductId !== null) {
+      // Edición
+      await actualizarProductoApi(instance, account, editingProductId, {
+        name: newProduct.name,
+        description: newProduct.description,
+        price: newProduct.price,
+        stock: newProduct.stock,
+      });
+      setEditingProductId(null);
+      setSalida(`Producto #${editingProductId} actualizado con éxito.`);
+    } else {
+      // Creación
       const prod = newProduct.name ? newProduct : productosEjemplo[Math.floor(Math.random() * productosEjemplo.length)];
       await crearProductoApi(instance, account, prod);
-      setNewProduct({ name: '', description: '', price: 2500, stock: 20 });
-      await cargarDatos();
+      setSalida('Producto creado exitosamente.');
     }
+
+    setNewProduct({ name: '', description: '', price: 2500, stock: 20 });
+    await cargarDatos();
+  }
+
+  function handleIniciarEdicion(product: Product) {
+    if (!product.id) return;
+    setEditingProductId(product.id);
+    setNewProduct({
+      name: product.name,
+      description: product.description,
+      price: product.price,
+      stock: product.stock,
+    });
+  }
+
+  function handleCancelarEdicion() {
+    setEditingProductId(null);
+    setNewProduct({ name: '', description: '', price: 2500, stock: 20 });
   }
 
   async function handleEliminarProducto(id: number) {
@@ -117,6 +156,11 @@ export default function App() {
     const prod = data.products.find(p => p.id === Number(selectedProductId));
     if (!prod) {
       setSalida('⚠️ Producto seleccionado no válido.');
+      return;
+    }
+
+    if (quantity > prod.stock) {
+      setSalida(`⚠️ Cantidad excede el stock disponible (${prod.stock} un.).`);
       return;
     }
 
@@ -165,11 +209,19 @@ export default function App() {
     }
   };
 
-  const ordersFiltradas = data.orders.filter(o =>
-    o.customerEmail.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    o.status.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (o.itemDescription && o.itemDescription.toLowerCase().includes(searchTerm.toLowerCase()))
+  // Filtros
+  const productosFiltrados = data.products.filter(p =>
+    p.name.toLowerCase().includes(searchProductTerm.toLowerCase()) ||
+    p.description.toLowerCase().includes(searchProductTerm.toLowerCase())
   );
+
+  const ordersFiltradas = data.orders.filter(o =>
+    o.customerEmail.toLowerCase().includes(searchOrderTerm.toLowerCase()) ||
+    o.status.toLowerCase().includes(searchOrderTerm.toLowerCase()) ||
+    (o.itemDescription && o.itemDescription.toLowerCase().includes(searchOrderTerm.toLowerCase()))
+  );
+
+  const productoSeleccionado = data.products.find(p => p.id === Number(selectedProductId));
 
   return (
     <main style={{ maxWidth: 1100, margin: '20px auto', padding: 20, fontFamily: 'system-ui, -apple-system, sans-serif' }}>
@@ -255,7 +307,17 @@ export default function App() {
       {account && activeTab === 'products' && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: '20px' }}>
           <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-            <h2 style={{ marginTop: 0 }}>Catálogo de Panadería & Café</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+              <h2 style={{ margin: 0 }}>Catálogo de Panadería & Café</h2>
+              <input
+                type="text"
+                placeholder="🔍 Buscar producto..."
+                value={searchProductTerm}
+                onChange={e => setSearchProductTerm(e.target.value)}
+                style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', width: '220px' }}
+              />
+            </div>
+
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
               <thead>
                 <tr style={{ borderBottom: '2px solid #e2e8f0', color: '#64748b' }}>
@@ -264,11 +326,11 @@ export default function App() {
                   <th style={{ padding: '10px' }}>Descripción</th>
                   <th style={{ padding: '10px' }}>Precio</th>
                   <th style={{ padding: '10px' }}>Stock</th>
-                  <th style={{ padding: '10px' }}>Acción</th>
+                  <th style={{ padding: '10px' }}>Acciones</th>
                 </tr>
               </thead>
               <tbody>
-                {data.products.map(p => (
+                {productosFiltrados.map(p => (
                   <tr key={p.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                     <td style={{ padding: '10px', fontWeight: 'bold' }}>#{p.id}</td>
                     <td style={{ padding: '10px', fontWeight: '600' }}>{p.name}</td>
@@ -279,7 +341,10 @@ export default function App() {
                         {p.stock} un.
                       </span>
                     </td>
-                    <td style={{ padding: '10px' }}>
+                    <td style={{ padding: '10px', display: 'flex', gap: '6px' }}>
+                      <button onClick={() => handleIniciarEdicion(p)} style={{ padding: '4px 8px', backgroundColor: '#f59e0b', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
+                        Editar
+                      </button>
                       {p.id && (
                         <button onClick={() => void ejecutar(() => handleEliminarProducto(p.id!))} style={{ padding: '4px 8px', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>
                           Eliminar
@@ -293,19 +358,31 @@ export default function App() {
           </div>
 
           <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', height: 'fit-content' }}>
-            <h3 style={{ marginTop: 0 }}>+ Crear Producto</h3>
-            <form onSubmit={e => void ejecutar(() => handleCrearProducto(e))} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <input placeholder="Nombre" value={newProduct.name} onChange={e => setNewProduct({ ...newProduct, name: e.target.value })} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
-              <input placeholder="Descripción" value={newProduct.description} onChange={e => setNewProduct({ ...newProduct, description: e.target.value })} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
-              <input type="number" placeholder="Precio" value={newProduct.price} onChange={e => setNewProduct({ ...newProduct, price: +e.target.value })} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
-              <input type="number" placeholder="Stock" value={newProduct.stock} onChange={e => setNewProduct({ ...newProduct, stock: +e.target.value })} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
-              <button type="submit" style={{ padding: '10px', backgroundColor: '#10b981', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
-                Guardar Producto
+            <h3 style={{ marginTop: 0 }}>
+              {editingProductId !== null ? `✏️ Editar Producto #${editingProductId}` : '+ Crear Producto'}
+            </h3>
+            <form onSubmit={e => void ejecutar(() => handleGuardarProducto(e))} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <input placeholder="Nombre" value={newProduct.name} onChange={e => setNewProduct({ ...newProduct, name: e.target.value })} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }} required />
+              <input placeholder="Descripción" value={newProduct.description} onChange={e => setNewProduct({ ...newProduct, description: e.target.value })} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }} required />
+              <input type="number" placeholder="Precio" value={newProduct.price} onChange={e => setNewProduct({ ...newProduct, price: +e.target.value })} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }} required />
+              <input type="number" placeholder="Stock" value={newProduct.stock} onChange={e => setNewProduct({ ...newProduct, stock: +e.target.value })} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }} required />
+              
+              <button type="submit" style={{ padding: '10px', backgroundColor: editingProductId !== null ? '#f59e0b' : '#10b981', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
+                {editingProductId !== null ? 'Actualizar Producto' : 'Guardar Producto'}
               </button>
+
+              {editingProductId !== null && (
+                <button type="button" onClick={handleCancelarEdicion} style={{ padding: '8px', backgroundColor: '#94a3b8', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
+                  Cancelar Edición
+                </button>
+              )}
             </form>
-            <button onClick={() => void ejecutar(() => handleCrearProducto())} style={{ marginTop: '10px', width: '100%', padding: '8px', backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
-              🎲 Generar Producto Aleatorio
-            </button>
+
+            {editingProductId === null && (
+              <button onClick={() => void ejecutar(() => handleGuardarProducto())} style={{ marginTop: '10px', width: '100%', padding: '8px', backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
+                🎲 Generar Producto Aleatorio
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -318,8 +395,8 @@ export default function App() {
               <input
                 type="text"
                 placeholder="🔍 Buscar por cliente o ítem..."
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
+                value={searchOrderTerm}
+                onChange={e => setSearchOrderTerm(e.target.value)}
                 style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', width: '220px' }}
               />
             </div>
@@ -383,7 +460,10 @@ export default function App() {
               <label style={{ fontSize: '12px', color: '#64748b' }}>Seleccionar Producto:</label>
               <select
                 value={selectedProductId}
-                onChange={e => setSelectedProductId(e.target.value ? Number(e.target.value) : '')}
+                onChange={e => {
+                  setSelectedProductId(e.target.value ? Number(e.target.value) : '');
+                  setQuantity(1);
+                }}
                 style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
                 required
               >
@@ -399,16 +479,21 @@ export default function App() {
               <input
                 type="number"
                 min="1"
+                max={productoSeleccionado ? productoSeleccionado.stock : 100}
                 value={quantity}
-                onChange={e => setQuantity(Math.max(1, +e.target.value))}
+                onChange={e => {
+                  const val = +e.target.value;
+                  const maxStock = productoSeleccionado ? productoSeleccionado.stock : 100;
+                  setQuantity(Math.min(maxStock, Math.max(1, val)));
+                }}
                 style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
                 required
               />
 
-              {selectedProductId !== '' && (
+              {productoSeleccionado && (
                 <div style={{ backgroundColor: '#f8fafc', padding: '10px', borderRadius: '6px', fontSize: '13px', color: '#334155' }}>
-                  <strong>Monto Total Proyectado:</strong> $
-                  {((data.products.find(p => p.id === Number(selectedProductId))?.price || 0) * quantity).toLocaleString()}
+                  <div><strong>Stock Disponible:</strong> {productoSeleccionado.stock} un.</div>
+                  <div><strong>Monto Total Proyectado:</strong> ${(productoSeleccionado.price * quantity).toLocaleString()}</div>
                 </div>
               )}
 

@@ -76,6 +76,18 @@ export async function crearProductoApi(
   });
 }
 
+export async function actualizarProductoApi(
+  instance: IPublicClientApplication,
+  account: AccountInfo,
+  id: number,
+  product: Product
+): Promise<Product> {
+  return fetchConAuth(instance, account, `/api/catalog/products/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(product),
+  });
+}
+
 export async function eliminarProductoApi(
   instance: IPublicClientApplication,
   account: AccountInfo,

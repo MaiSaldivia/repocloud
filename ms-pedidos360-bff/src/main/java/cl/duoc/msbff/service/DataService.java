@@ -75,6 +75,13 @@ public class DataService {
                 .body(new ParameterizedTypeReference<List<OrderDTO>>() {});
     }
 
+    public OrderDTO obtenerPedidoPorId(Long id) {
+        return restClientOrders.get()
+                .uri("/api/orders/" + id)
+                .retrieve()
+                .body(OrderDTO.class);
+    }
+
     public OrderDTO crearPedido(OrderDTO pedido) {
         return restClientOrders.post()
                 .uri("/api/orders")
@@ -90,15 +97,30 @@ public class DataService {
         return new DashboardDTO(productos, pedidos);
     }
 
-    // --- ACTUALIZACIÓN DE ESTADO DE PEDIDO Y DESCUENTO DE STOCK ---
+    // --- ACTUALIZACIÓN DE ESTADO DE PEDIDO Y DESCUENTO DE STOCK CON VALIDACIÓN ---
     public OrderDTO actualizarEstadoPedido(Long id, String status) {
+        // 1. Si se intenta ACEPTAR la orden, validamos primero que exista stock suficiente en el catálogo
+        if ("ACEPTADO".equalsIgnoreCase(status)) {
+            OrderDTO existingOrder = obtenerPedidoPorId(id);
+            if (existingOrder != null && existingOrder.productId() != null) {
+                ProductDTO product = obtenerProductoPorId(existingOrder.productId());
+                int cantidadRequerida = existingOrder.quantity() != null ? existingOrder.quantity() : 1;
+                
+                if (product != null && product.stock() != null && product.stock() < cantidadRequerida) {
+                    throw new IllegalArgumentException("Stock insuficiente para aceptar la orden. Stock disponible: " 
+                            + product.stock() + ", solicitado: " + cantidadRequerida);
+                }
+            }
+        }
+
+        // 2. Transición de estado en ms-orders
         OrderDTO order = restClientOrders.put()
                 .uri("/api/orders/" + id + "/status")
                 .body(java.util.Map.of("status", status))
                 .retrieve()
                 .body(OrderDTO.class);
 
-        // Regla clave: Descontar stock en catálogo al pasar a ACEPTADO
+        // 3. Descuento de stock efectivo tras la aceptación
         if ("ACEPTADO".equalsIgnoreCase(status) && order != null && order.productId() != null) {
             try {
                 ProductDTO product = obtenerProductoPorId(order.productId());
@@ -106,7 +128,6 @@ public class DataService {
                     int cantidadADescontar = order.quantity() != null ? order.quantity() : 1;
                     int nuevoStock = Math.max(0, product.stock() - cantidadADescontar);
                     
-                    // Al ser un 'record' de Java, instanciamos uno nuevo con el stock actualizado
                     ProductDTO productoActualizado = new ProductDTO(
                         product.id(),
                         product.name(),
