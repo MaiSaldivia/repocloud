@@ -8,11 +8,12 @@ import { obtenerToken } from './token';
 import {
   consultarDashboard,
   crearProductoApi,
+  eliminarProductoApi,
   crearPedidoApi,
   actualizarEstadoPedidoApi,
 } from './api';
 
-// Importación estricta de interfaces (requerido por verbatimModuleSyntax)
+// Importación estricta de interfaces
 import type {
   Product,
   Order,
@@ -25,15 +26,15 @@ export default function App() {
   const [data, setData] = useState<DashboardData>({ products: [], orders: [] });
   const [salida, setSalida] = useState('');
   const [ocupado, setOcupado] = useState(false);
-  const [hasToken, setHasToken] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
   const account = accounts[0];
   const bloqueado = ocupado || inProgress !== InteractionStatus.None;
 
-  // Formulario manual
+  // Formularios
   const [newProduct, setNewProduct] = useState({ name: '', description: '', price: 2500, stock: 20 });
-  const [newOrderAmount, setNewOrderAmount] = useState(4900);
+  const [selectedProductId, setSelectedProductId] = useState<number | ''>('');
+  const [quantity, setQuantity] = useState(1);
 
   const productosEjemplo = [
     { name: 'Café Capuchino 300ml', description: 'Café expreso con leche vaporizada y espuma', price: 2800, stock: 50 },
@@ -67,7 +68,6 @@ export default function App() {
     if (!token.accessToken) {
       throw new Error('No se obtuvo access token de Entra ID');
     }
-    setHasToken(true);
     setSalida(
       'Token de API Azure AD validado con éxito.\nVence: ' +
         (token.expiresOn?.toLocaleString() ?? 'Consultar metadatos')
@@ -78,7 +78,6 @@ export default function App() {
     if (account) {
       const res = await consultarDashboard(instance, account);
       setData(res);
-      setHasToken(true);
       setSalida('Datos del Dashboard actualizados desde el BFF.');
     }
   }
@@ -99,16 +98,42 @@ export default function App() {
     }
   }
 
-  async function handleCrearPedido(e?: React.FormEvent) {
-    if (e) e.preventDefault();
-    if (account) {
-      await crearPedidoApi(instance, account, {
-        customerEmail: account.username,
-        totalAmount: newOrderAmount,
-        status: 'CREADO',
-      });
+  async function handleEliminarProducto(id: number) {
+    if (account && confirm('¿Estás seguro de eliminar este producto del catálogo?')) {
+      await eliminarProductoApi(instance, account, id);
       await cargarDatos();
     }
+  }
+
+  async function handleCrearPedido(e?: React.FormEvent) {
+    if (e) e.preventDefault();
+    if (!account) return;
+
+    if (!selectedProductId) {
+      setSalida('⚠️ Por favor selecciona un producto del catálogo.');
+      return;
+    }
+
+    const prod = data.products.find(p => p.id === Number(selectedProductId));
+    if (!prod) {
+      setSalida('⚠️ Producto seleccionado no válido.');
+      return;
+    }
+
+    const totalCalculado = prod.price * quantity;
+
+    await crearPedidoApi(instance, account, {
+      customerEmail: account.username,
+      productId: prod.id,
+      itemDescription: `${prod.name} (x${quantity})`,
+      quantity: quantity,
+      totalAmount: totalCalculado,
+      status: 'CREADO',
+    });
+
+    setSelectedProductId('');
+    setQuantity(1);
+    await cargarDatos();
   }
 
   async function handleCambiarEstado(id: number, status: Order['status']) {
@@ -124,7 +149,6 @@ export default function App() {
 
   async function salir() {
     if (account) {
-      setHasToken(false);
       await instance.logoutPopup({ account });
     }
   }
@@ -143,7 +167,8 @@ export default function App() {
 
   const ordersFiltradas = data.orders.filter(o =>
     o.customerEmail.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    o.status.toLowerCase().includes(searchTerm.toLowerCase())
+    o.status.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (o.itemDescription && o.itemDescription.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   return (
@@ -239,6 +264,7 @@ export default function App() {
                   <th style={{ padding: '10px' }}>Descripción</th>
                   <th style={{ padding: '10px' }}>Precio</th>
                   <th style={{ padding: '10px' }}>Stock</th>
+                  <th style={{ padding: '10px' }}>Acción</th>
                 </tr>
               </thead>
               <tbody>
@@ -253,6 +279,13 @@ export default function App() {
                         {p.stock} un.
                       </span>
                     </td>
+                    <td style={{ padding: '10px' }}>
+                      {p.id && (
+                        <button onClick={() => void ejecutar(() => handleEliminarProducto(p.id!))} style={{ padding: '4px 8px', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>
+                          Eliminar
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -261,7 +294,7 @@ export default function App() {
 
           <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', height: 'fit-content' }}>
             <h3 style={{ marginTop: 0 }}>+ Crear Producto</h3>
-            <form onSubmit={e => void handleCrearProducto(e)} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <form onSubmit={e => void ejecutar(() => handleCrearProducto(e))} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <input placeholder="Nombre" value={newProduct.name} onChange={e => setNewProduct({ ...newProduct, name: e.target.value })} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
               <input placeholder="Descripción" value={newProduct.description} onChange={e => setNewProduct({ ...newProduct, description: e.target.value })} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
               <input type="number" placeholder="Precio" value={newProduct.price} onChange={e => setNewProduct({ ...newProduct, price: +e.target.value })} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
@@ -270,7 +303,7 @@ export default function App() {
                 Guardar Producto
               </button>
             </form>
-            <button onClick={() => void handleCrearProducto()} style={{ marginTop: '10px', width: '100%', padding: '8px', backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
+            <button onClick={() => void ejecutar(() => handleCrearProducto())} style={{ marginTop: '10px', width: '100%', padding: '8px', backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
               🎲 Generar Producto Aleatorio
             </button>
           </div>
@@ -278,13 +311,13 @@ export default function App() {
       )}
 
       {account && activeTab === 'orders' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: '20px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '20px' }}>
           <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
               <h2 style={{ margin: 0 }}>Listado de Pedidos</h2>
               <input
                 type="text"
-                placeholder="🔍 Buscar por correo o estado..."
+                placeholder="🔍 Buscar por cliente o ítem..."
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
                 style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', width: '220px' }}
@@ -296,9 +329,11 @@ export default function App() {
                 <tr style={{ borderBottom: '2px solid #e2e8f0', color: '#64748b' }}>
                   <th style={{ padding: '10px' }}>ID</th>
                   <th style={{ padding: '10px' }}>Cliente</th>
+                  <th style={{ padding: '10px' }}>Ítem / Detalle</th>
+                  <th style={{ padding: '10px' }}>Cant.</th>
                   <th style={{ padding: '10px' }}>Total</th>
                   <th style={{ padding: '10px' }}>Estado</th>
-                  <th style={{ padding: '10px' }}>Cambiar Estado</th>
+                  <th style={{ padding: '10px' }}>Acción</th>
                 </tr>
               </thead>
               <tbody>
@@ -306,7 +341,11 @@ export default function App() {
                   <tr key={o.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                     <td style={{ padding: '10px', fontWeight: 'bold' }}>#{o.id}</td>
                     <td style={{ padding: '10px', fontSize: '13px' }}>{o.customerEmail}</td>
-                    <td style={{ padding: '10px', fontWeight: 'bold' }}>${o.totalAmount}</td>
+                    <td style={{ padding: '10px', fontSize: '13px', color: '#334155', fontWeight: '500' }}>
+                      {o.itemDescription || 'Sin detalle'}
+                    </td>
+                    <td style={{ padding: '10px', fontWeight: 'bold' }}>{o.quantity || 1}</td>
+                    <td style={{ padding: '10px', fontWeight: 'bold', color: '#059669' }}>${o.totalAmount}</td>
                     <td style={{ padding: '10px' }}>
                       <span style={{ padding: '4px 10px', borderRadius: '12px', color: '#fff', backgroundColor: getStatusColor(o.status), fontSize: '11px', fontWeight: 'bold' }}>
                         {o.status}
@@ -336,12 +375,43 @@ export default function App() {
           </div>
 
           <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', height: 'fit-content' }}>
-            <h3 style={{ marginTop: 0 }}>+ Crear Pedido Web</h3>
-            <form onSubmit={e => void handleCrearPedido(e)} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <label style={{ fontSize: '12px', color: '#64748b' }}>Cliente Logueado:</label>
+            <h3 style={{ marginTop: 0 }}>+ Crear Pedido de Catálogo</h3>
+            <form onSubmit={e => void ejecutar(() => handleCrearPedido(e))} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <label style={{ fontSize: '12px', color: '#64748b' }}>Cliente:</label>
               <input value={account.username} disabled style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: '#f1f5f9' }} />
-              <label style={{ fontSize: '12px', color: '#64748b' }}>Monto Total ($):</label>
-              <input type="number" value={newOrderAmount} onChange={e => setNewOrderAmount(+e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
+
+              <label style={{ fontSize: '12px', color: '#64748b' }}>Seleccionar Producto:</label>
+              <select
+                value={selectedProductId}
+                onChange={e => setSelectedProductId(e.target.value ? Number(e.target.value) : '')}
+                style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                required
+              >
+                <option value="">-- Elige un producto --</option>
+                {data.products.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} (${p.price}) - Stock: {p.stock}
+                  </option>
+                ))}
+              </select>
+
+              <label style={{ fontSize: '12px', color: '#64748b' }}>Cantidad:</label>
+              <input
+                type="number"
+                min="1"
+                value={quantity}
+                onChange={e => setQuantity(Math.max(1, +e.target.value))}
+                style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                required
+              />
+
+              {selectedProductId !== '' && (
+                <div style={{ backgroundColor: '#f8fafc', padding: '10px', borderRadius: '6px', fontSize: '13px', color: '#334155' }}>
+                  <strong>Monto Total Proyectado:</strong> $
+                  {((data.products.find(p => p.id === Number(selectedProductId))?.price || 0) * quantity).toLocaleString()}
+                </div>
+              )}
+
               <button type="submit" style={{ padding: '10px', backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
                 Generar Pedido Web
               </button>

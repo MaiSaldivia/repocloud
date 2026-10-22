@@ -5,6 +5,7 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -41,6 +42,17 @@ public class BffController {
         return ResponseEntity.ok(dataService.crearProducto(product));
     }
 
+    @PutMapping("/catalog/products/{id}")
+    public ResponseEntity<ProductDTO> updateProduct(@PathVariable Long id, @RequestBody ProductDTO product) {
+        return ResponseEntity.ok(dataService.actualizarProducto(id, product));
+    }
+
+    @DeleteMapping("/catalog/products/{id}")
+    public ResponseEntity<Void> deleteProduct(@PathVariable Long id) {
+        dataService.eliminarProducto(id);
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/orders")
     public ResponseEntity<List<OrderDTO>> getOrders() {
         return ResponseEntity.ok(dataService.obtenerPedidos());
@@ -54,10 +66,5 @@ public class BffController {
     @PutMapping("/orders/{id}/status")
     public ResponseEntity<OrderDTO> updateOrderStatus(@PathVariable Long id, @RequestBody java.util.Map<String, String> body) {
         return ResponseEntity.ok(dataService.actualizarEstadoPedido(id, body.get("status")));
-    }
-
-    @PutMapping("/catalog/products/{id}")
-    public ResponseEntity<ProductDTO> updateProduct(@PathVariable Long id, @RequestBody ProductDTO product) {
-        return ResponseEntity.ok(dataService.actualizarProducto(id, product));
     }
 }

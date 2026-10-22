@@ -15,11 +15,17 @@ public class Order {
     @Column(nullable = false)
     private String customerEmail;
 
+    private Long productId;
+
+    private String itemDescription;
+
+    private Integer quantity;
+
     @Column(nullable = false)
     private BigDecimal totalAmount;
 
     @Column(nullable = false)
-    private String status; // "CREADO", "ACEPTADO", "RECHAZADO", "EN_PREPARACION"
+    private String status;
 
     private LocalDateTime createdAt;
 
@@ -31,6 +37,9 @@ public class Order {
         if (this.status == null) {
             this.status = "CREADO";
         }
+        if (this.quantity == null) {
+            this.quantity = 1;
+        }
     }
 
     public Long getId() { return id; }
@@ -38,6 +47,15 @@ public class Order {
 
     public String getCustomerEmail() { return customerEmail; }
     public void setCustomerEmail(String customerEmail) { this.customerEmail = customerEmail; }
+
+    public Long getProductId() { return productId; }
+    public void setProductId(Long productId) { this.productId = productId; }
+
+    public String getItemDescription() { return itemDescription; }
+    public void setItemDescription(String itemDescription) { this.itemDescription = itemDescription; }
+
+    public Integer getQuantity() { return quantity; }
+    public void setQuantity(Integer quantity) { this.quantity = quantity; }
 
     public BigDecimal getTotalAmount() { return totalAmount; }
     public void setTotalAmount(BigDecimal totalAmount) { this.totalAmount = totalAmount; }

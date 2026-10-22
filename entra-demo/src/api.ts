@@ -15,6 +15,9 @@ export interface Product {
 export interface Order {
   id?: number;
   customerEmail: string;
+  productId?: number;
+  itemDescription?: string;
+  quantity?: number;
   totalAmount: number;
   status: 'CREADO' | 'ACEPTADO' | 'EN_PREPARACIÓN' | 'DESPACHADO' | 'ENTREGADO' | 'CANCELADO';
   createdAt?: string;
@@ -70,6 +73,16 @@ export async function crearProductoApi(
   return fetchConAuth(instance, account, '/api/catalog/products', {
     method: 'POST',
     body: JSON.stringify(product),
+  });
+}
+
+export async function eliminarProductoApi(
+  instance: IPublicClientApplication,
+  account: AccountInfo,
+  id: number
+): Promise<void> {
+  return fetchConAuth(instance, account, `/api/catalog/products/${id}`, {
+    method: 'DELETE',
   });
 }
 

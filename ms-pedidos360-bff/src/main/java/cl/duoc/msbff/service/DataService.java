@@ -37,12 +37,34 @@ public class DataService {
                 .body(new ParameterizedTypeReference<List<ProductDTO>>() {});
     }
 
+    public ProductDTO obtenerProductoPorId(Long id) {
+        return restClientCatalog.get()
+                .uri("/api/catalog/products/" + id)
+                .retrieve()
+                .body(ProductDTO.class);
+    }
+
     public ProductDTO crearProducto(ProductDTO producto) {
         return restClientCatalog.post()
                 .uri("/api/catalog/products")
                 .body(producto)
                 .retrieve()
                 .body(ProductDTO.class);
+    }
+
+    public ProductDTO actualizarProducto(Long id, ProductDTO producto) {
+        return restClientCatalog.put()
+                .uri("/api/catalog/products/" + id)
+                .body(producto)
+                .retrieve()
+                .body(ProductDTO.class);
+    }
+
+    public void eliminarProducto(Long id) {
+        restClientCatalog.delete()
+                .uri("/api/catalog/products/" + id)
+                .retrieve()
+                .toBodilessEntity();
     }
 
     // --- MÉTODOS DE PEDIDOS ---
@@ -68,21 +90,38 @@ public class DataService {
         return new DashboardDTO(productos, pedidos);
     }
 
-    // --- ACTUALIZACIÓN DE ESTADO DE PEDIDO ---
+    // --- ACTUALIZACIÓN DE ESTADO DE PEDIDO Y DESCUENTO DE STOCK ---
     public OrderDTO actualizarEstadoPedido(Long id, String status) {
-        return restClientOrders.put()
+        OrderDTO order = restClientOrders.put()
                 .uri("/api/orders/" + id + "/status")
                 .body(java.util.Map.of("status", status))
                 .retrieve()
                 .body(OrderDTO.class);
-    }
 
-    // --- ACTUALIZACIÓN DE PRODUCTO ---
-    public ProductDTO actualizarProducto(Long id, ProductDTO producto) {
-        return restClientCatalog.put()
-                .uri("/api/catalog/products/" + id)
-                .body(producto)
-                .retrieve()
-                .body(ProductDTO.class);
+        // Regla clave: Descontar stock en catálogo al pasar a ACEPTADO
+        if ("ACEPTADO".equalsIgnoreCase(status) && order != null && order.productId() != null) {
+            try {
+                ProductDTO product = obtenerProductoPorId(order.productId());
+                if (product != null && product.stock() != null) {
+                    int cantidadADescontar = order.quantity() != null ? order.quantity() : 1;
+                    int nuevoStock = Math.max(0, product.stock() - cantidadADescontar);
+                    
+                    // Al ser un 'record' de Java, instanciamos uno nuevo con el stock actualizado
+                    ProductDTO productoActualizado = new ProductDTO(
+                        product.id(),
+                        product.name(),
+                        product.description(),
+                        product.price(),
+                        nuevoStock
+                    );
+
+                    actualizarProducto(product.id(), productoActualizado);
+                }
+            } catch (Exception e) {
+                System.err.println("Error al actualizar el stock del producto ID " + order.productId() + ": " + e.getMessage());
+            }
+        }
+
+        return order;
     }
 }

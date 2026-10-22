@@ -38,7 +38,7 @@ public class OrderService {
         return orderRepository.findById(id).map(order -> {
             String currentStatus = order.getStatus();
 
-            // Regla de Negocio: No se puede "despachar" sin "aceptar"
+            // Regla de Negocio: No se puede despachar sin aceptar
             if ("DESPACHADO".equalsIgnoreCase(newStatus) && !"ACEPTADO".equalsIgnoreCase(currentStatus)) {
                 throw new IllegalArgumentException("No se puede despachar un pedido que no ha sido ACEPTADO previamente.");
             }
