@@ -1,0 +1,11 @@
+spring:
+  application:
+    name: ms-pedidos360-notify
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+    listener:
+      simple:
+        default-requeue-rejected: false

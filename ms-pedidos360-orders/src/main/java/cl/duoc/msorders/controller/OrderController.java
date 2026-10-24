@@ -1,6 +1,8 @@
 package cl.duoc.msorders.controller;
 
+import cl.duoc.msorders.dto.NotificationMessage;
 import cl.duoc.msorders.model.Order;
+import cl.duoc.msorders.service.NotificationPublisher;
 import cl.duoc.msorders.service.OrderService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -17,6 +19,9 @@ public class OrderController {
 
     @Autowired
     private OrderService orderService;
+
+    @Autowired
+    private NotificationPublisher notificationPublisher;
 
     @GetMapping
     public List<Order> getOrders(
@@ -49,5 +54,11 @@ public class OrderController {
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
+    }
+
+    @PostMapping("/test-notification")
+    public ResponseEntity<String> enviarNotificacion(@RequestBody NotificationMessage mensaje) {
+        notificationPublisher.enviarNotificacion(mensaje);
+        return ResponseEntity.accepted().body("Solicitud de notificacion publicada");
     }
 }

@@ -8,7 +8,7 @@ spring:
     url: jdbc:h2:mem:ordersdb
     driverClassName: org.h2.Driver
     username: sa
-    password: 
+    password:
   jpa:
     database-platform: org.hibernate.dialect.H2Dialect
     hibernate:
@@ -17,3 +17,20 @@ spring:
     console:
       enabled: true
       path: /h2-console
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+
+# Configuración centralizada de RabbitMQ para la pauta
+rabbitmq:
+  exchanges:
+    direct: cmd.direct
+    topic: cmd.topic
+    dlx: cmd.dead.dlx
+  queues:
+    email: q.cmd.email
+    email-dlq: q.cmd.email.dlq
+  routing-keys:
+    email: email.send
