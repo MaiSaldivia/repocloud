@@ -64,9 +64,11 @@ public class OrderService {
                     ? newStatus.toUpperCase().replace("Ó", "O").replace("É", "E").replace("Á", "A").replace("Í", "I").replace("Ú", "U") 
                     : "";
 
-            // Regla de Negocio: No se puede despachar sin aceptar
-            if ("DESPACHADO".equalsIgnoreCase(cleanStatus) && !"ACEPTADO".equalsIgnoreCase(currentStatus)) {
-                throw new IllegalArgumentException("No se puede despachar un pedido que no ha sido ACEPTADO previamente.");
+            // Regla de Negocio: Para DESPACHAR, el pedido debe estar en ACEPTADO o EN_PREPARACION
+            if ("DESPACHADO".equalsIgnoreCase(cleanStatus) 
+                    && !"ACEPTADO".equalsIgnoreCase(currentStatus) 
+                    && !"EN_PREPARACION".equalsIgnoreCase(currentStatus)) {
+                throw new IllegalArgumentException("No se puede despachar un pedido que no ha sido ACEPTADO o puesto EN_PREPARACION previamente.");
             }
 
             order.setStatus(cleanStatus);
