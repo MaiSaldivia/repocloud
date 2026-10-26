@@ -59,12 +59,17 @@ public class OrderService {
         return orderRepository.findById(id).map(order -> {
             String currentStatus = order.getStatus();
 
+            // Normalizar tildes y mayúsculas para evitar fallos de codificación (ej. EN_PREPARACIÓN -> EN_PREPARACION)
+            String cleanStatus = newStatus != null 
+                    ? newStatus.toUpperCase().replace("Ó", "O").replace("É", "E").replace("Á", "A").replace("Í", "I").replace("Ú", "U") 
+                    : "";
+
             // Regla de Negocio: No se puede despachar sin aceptar
-            if ("DESPACHADO".equalsIgnoreCase(newStatus) && !"ACEPTADO".equalsIgnoreCase(currentStatus)) {
+            if ("DESPACHADO".equalsIgnoreCase(cleanStatus) && !"ACEPTADO".equalsIgnoreCase(currentStatus)) {
                 throw new IllegalArgumentException("No se puede despachar un pedido que no ha sido ACEPTADO previamente.");
             }
 
-            order.setStatus(newStatus.toUpperCase());
+            order.setStatus(cleanStatus);
             Order updatedOrder = orderRepository.save(order);
 
             // Publicar notificación a RabbitMQ al cambiar estado
