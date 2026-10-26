@@ -37,13 +37,15 @@ public class OrderService {
     public Order createOrder(Order order) {
         Order savedOrder = orderRepository.save(order);
 
-        // Notificación automática a RabbitMQ al crear pedido
+        // Publicar notificación a RabbitMQ al crear el pedido
         try {
             NotificationMessage notif = new NotificationMessage();
             notif.setPedidoId(savedOrder.getId());
-            notif.setEmail(savedOrder.getCliente() != null ? savedOrder.getCliente() : "cliente@pedidos360.cl");
+            notif.setEmail(savedOrder.getCustomerEmail() != null ? savedOrder.getCustomerEmail() : "cliente@pedidos360.cl");
             notif.setAsunto("Nuevo Pedido Creado #" + savedOrder.getId());
-            notif.setMensaje("Tu pedido de " + savedOrder.getDetalle() + " fue registrado con exito.");
+            
+            String detalle = savedOrder.getItemDescription() != null ? savedOrder.getItemDescription() : "Producto";
+            notif.setMensaje("Tu pedido de (" + detalle + ") fue registrado exitosamente con estado CREADO.");
             
             notificationPublisher.enviarNotificacion(notif);
         } catch (Exception e) {
@@ -65,12 +67,12 @@ public class OrderService {
             order.setStatus(newStatus.toUpperCase());
             Order updatedOrder = orderRepository.save(order);
 
-            // Notificación automática a RabbitMQ al actualizar estado
+            // Publicar notificación a RabbitMQ al cambiar estado
             try {
                 NotificationMessage notif = new NotificationMessage();
                 notif.setPedidoId(updatedOrder.getId());
-                notif.setEmail(updatedOrder.getCliente() != null ? updatedOrder.getCliente() : "cliente@pedidos360.cl");
-                notif.setAsunto("Actualizacion de Pedido #" + updatedOrder.getId());
+                notif.setEmail(updatedOrder.getCustomerEmail() != null ? updatedOrder.getCustomerEmail() : "cliente@pedidos360.cl");
+                notif.setAsunto("Actualización de Pedido #" + updatedOrder.getId());
                 notif.setMensaje("El estado de tu pedido ha cambiado a: " + updatedOrder.getStatus());
                 
                 notificationPublisher.enviarNotificacion(notif);
