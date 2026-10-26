@@ -2,7 +2,7 @@ spring:
   application:
     name: ms-pedidos360-notify
   rabbitmq:
-    host: localhost
+    host: 172.31.18.41
     port: 5672
     username: guest
     password: guest
