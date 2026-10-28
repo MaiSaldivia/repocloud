@@ -13,13 +13,14 @@ spring:
     database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
       ddl-auto: update
+  rabbitmq:
+    host: 172.31.18.41
+    port: 5672
+    username: guest
+    password: guest
 
-# Configuración centralizada de RabbitMQ
+# Configuración personalizada de Exchanges/Queues del proyecto
 rabbitmq:
-  host: 172.31.18.41
-  port: 5672
-  username: guest
-  password: guest
   exchanges:
     direct: cmd.direct
     topic: cmd.topic
