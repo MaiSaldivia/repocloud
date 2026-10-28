@@ -1,20 +1,28 @@
 services:
-  rabbitmq:
-    image: rabbitmq:3.13-management
-    container_name: rabbitmq
-    ports:
-      - "5672:5672"     # Puerto AMQP (el que usa Spring Boot)
-      - "15672:15672"   # Puerto Dashboard de Administración (Navegador Web)
+  postgres-catalog:
+    image: postgres:15-alpine
+    container_name: postgres-catalog
     environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
+      POSTGRES_DB: catalogdb
+      POSTGRES_USER: sa
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
     volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      - catalog_postgres_data:/var/lib/postgresql/data
+
+  postgres-orders:
+    image: postgres:15-alpine
+    container_name: postgres-orders
+    environment:
+      POSTGRES_DB: ordersdb
+      POSTGRES_USER: sa
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5433:5432"
+    volumes:
+      - orders_postgres_data:/var/lib/postgresql/data
 
 volumes:
-  rabbitmq_data:
+  catalog_postgres_data:
+  orders_postgres_data:
